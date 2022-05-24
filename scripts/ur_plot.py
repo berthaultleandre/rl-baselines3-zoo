@@ -2,7 +2,9 @@
 Plot training reward/success rate
 """
 import argparse
+from cmath import inf
 import os
+from re import I
 from sqlalchemy import false
 
 import yaml
@@ -16,18 +18,14 @@ from matplotlib import gridspec, pyplot as plt
 from stable_baselines3.common.monitor import LoadMonitorResultsError, load_results
 from stable_baselines3.common.results_plotter import ts2xy, window_func
 
-def format_x_axis(xs, x_axis):
-	# If the number of timesteps is greater than 10**(3*power+1),
-	# divide timesteps by 10**(3*power) (e.g. for timesteps ranging
-	# from 0 up to 100000, x_ticks will range from 0 up to 100 (x1000))
-	x_label = x_label_dict[x_axis]
-	powerOf1000 = 0
-	if x_axis == X_STEP:
-		powerOf1000 = max([math.floor(1/3*math.log(max(x)/10)) for x in xs])
-	if powerOf1000 != 0:
-		x_label=f"{x_label} (x{int(10**powerOf1000)})"
-		xs = [x / 10 ** (powerOf1000) for x in xs]
-	return xs, x_label
+def format_axis(data, axis):
+	label = axis_label_dict[axis]
+	if axis == KEY_STEP or axis == KEY_EPISODE:
+		powerOf10 = max([math.floor(1/3*(math.log(max(x),10)-1)) for x in data])
+		if powerOf10 != 0:
+			label=f"{label} (x{10**(3*powerOf10)})"
+			data = [x / 10 ** (3*powerOf10) for x in data]
+	return data, label
 
 def get_figure_shape(n_subplots, args):
 	n_row = args.row
@@ -56,9 +54,9 @@ def plot_results(args) -> None:
 		x_axis = args.x_axis[subplot_index]
 		y_axis = args.y_axis[subplot_index]
 
-		y_label = y_label_dict[y_axis]
+		y_label = axis_label_dict[y_axis]
 
-		title = title_dict[y_axis]
+		title = str(title_dict[y_axis]) + " (" + str(title_dict[x_axis]) + ")"
 
 		x_data_agent, y_data_agent = [], []
 
@@ -88,7 +86,8 @@ def plot_results(args) -> None:
 					x_data_agent, y_data_agent = x_data_agent + [x], y_data_agent + [y]
 
 		if not empty_axis:
-			x_data_agent, x_label = format_x_axis(x_data_agent, x_axis)
+			x_data_agent, x_label = format_axis(x_data_agent, x_axis)
+			y_data_agent, y_label = format_axis(y_data_agent, y_axis)
 
 			# Store data
 			titles.append(title)
@@ -177,7 +176,8 @@ def plot_rates(args) -> None:
 								x_data_agent, y_data_agent = x_data_agent + [x], y_data_agent + [y]
 						
 						if not empty_axis:
-							x_data_agent, x_label = format_x_axis(x_data_agent, x_axis)
+							x_data_agent, x_label = format_axis(x_data_agent, x_axis)
+
 							# Store data
 							titles.append(title)
 							x_labels.append(x_label) 
@@ -201,7 +201,7 @@ def plot_rates(args) -> None:
 		ax = fig.add_subplot(gs[subplot_index])
 		title = titles[subplot_index]
 		x_label = x_labels[subplot_index]
-		y_label = y_label_dict[Y_RATES]
+		y_label = axis_label_dict[KEY_RATES]
 		ax.set(title=title, xlabel=x_label, ylabel=y_label)
 
 		# Plot data on subplot
@@ -223,7 +223,7 @@ def create_figure(n_subplots, args):
 
 	gs = gridspec.GridSpec(n_row, n_col)
 	if not args.figsize:
-		args.figsize = [6.4, 4.8]
+		args.figsize = [6.4*2, 4.8*2]
 
 	fig = plt.figure(figsize=args.figsize)
 
@@ -235,15 +235,12 @@ def adjust_figure(fig, legend_labels, args):
 	legend.set_draggable(True)
 
 	# Set figure title
-	if args.evaluation:
-		figtitle = "Evaluation results"
-	else:
-		figtitle = "Training results"
+	figtitle = "Training results"
 
 	fig.suptitle(figtitle, fontsize=16)
 
 	# Adjust subplots dimensions
-	fig.subplots_adjust(wspace=0.3, hspace=0.6, bottom=9/80 + 2/80 * len(legend_labels))
+	fig.subplots_adjust(left=0.07, bottom=9/80 + 2/80 * len(legend_labels), right=0.93, top=0.9, wspace=0.3, hspace=0.5)
 
 def get_experiment_info(folder) -> str:
 	experiment_index = get_experiment_index(folder)
@@ -261,46 +258,127 @@ def get_experiment_index(folder) -> str:
 def get_env_name(folder) -> str:
 	return folder.split('/')[-1].split('-')[0]
 
+def get_episode_limits(data_frame, args):
+	first_episode, last_episode = 0, len(data_frame)
+
+	# Episodes
+	if args.min_episodes is not None or args.max_episodes is not None:
+		min_val = min(max(0, args.min_episodes), len(data_frame)) if args.min_episodes else 0
+		max_val = min(max(0, args.max_episodes), len(data_frame)) if args.max_episodes else len(data_frame)
+		if min_val > max_val:
+			print(f"Min cannot be greater than max (episodes)")
+			return None
+		first_episode = max(first_episode, min_val)
+		last_episode = min(last_episode, max_val)
+
+	# Steps
+	if args.min_timesteps is not None or args.max_timesteps is not None:
+		min_val = args.min_timesteps if args.min_timesteps else 0
+		max_val = args.max_timesteps if args.max_timesteps else inf
+
+		if min_val > max_val:
+			print(f"Min cannot be greater than max (steps)")
+			return None
+		s = 0
+		i = 0
+		found_min = False
+		for e in data_frame.loc[:,'l']:
+			s = s + e
+			if (not found_min and s >= min_val):
+				first_episode = max(first_episode, i)
+				found_min = True
+			if (s >= max_val):
+				last_episode = min(last_episode, i - 1)
+				break
+			i = i + 1
+		if not found_min:
+			return None
+
+	# Time
+	if args.min_time is not None or args.max_time is not None:
+		min_val = args.min_time if args.min_time else 0
+		max_val = args.max_time if args.max_time else inf
+		if min_val >= max_val:
+			print(f"Min cannot be greater than max (time)")
+			return None
+		i = 0
+		found_min = False
+		for e in data_frame.loc[:,'t']:
+			if (not found_min and e > min_val * 3600):
+				first_episode = max(first_episode, i)
+				found_min = True
+			if (e > max_val * 3600):
+				last_episode = min(last_episode, i - 1)
+				break
+			i = i + 1
+		if not found_min:
+			return None
+
+	return first_episode, last_episode
+
 def load_data(folder, x_axis, y_axis, args):
 	if not os.path.isdir(folder):
 		return None
-	
-	if args.evaluation:
-		subfolder = "eval"
-	else:
-		subfolder = "train"
-
-	data_folder = os.path.join(folder, subfolder)
-	
-	if not os.path.isdir(data_folder):
-		return None
 
 	try:
-		data_frame = load_results(data_folder)
+		data_frame = load_results(folder)
 	except LoadMonitorResultsError:
 		return None
 
-	if args.max_timesteps is not None:
-		data_frame = data_frame[data_frame.l.cumsum() <= args.max_timesteps]
+	# Get episode limit according to min/max args
+	episode_limits = get_episode_limits(data_frame, args)
 
-	try:
-		y = np.array(data_frame[y_axis_dict[y_axis]])
-	except KeyError:
-		print(f"No data available for {data_folder}")
+	if episode_limits is None:
 		return None
-	
-	if y_axis in rates:
-		y = np.array([compare_status(status, y_axis) for status in y])
+
+	if y_axis in x_axis_list:
+		y = dataframe_to_axis(data_frame, axis_data_dict[y_axis], episode_limits)
+	else:
+		try:
+			y = np.array(data_frame.loc[episode_limits[0]:episode_limits[1]-1, axis_data_dict[y_axis]])
+		except KeyError:
+			print(f"No data available for {folder}")
+			return None
+		
+		# If y_axis is in rates then y is an array of string (e.g. ["collision", "success", ...])
+		# so we need to transform y with compare_status which acts like a step function
+		if y_axis in rates:
+			y = np.array([compare_status(status, y_axis) for status in y])
 
 	if len(y) == 0:
 		return None
 
-	if args.evaluation:
-		data = get_evaluation_data(y, folder)
-	else:
-		data = get_training_data(y, x_axis, data_frame, args)
+	data = get_training_data(y, x_axis, data_frame, episode_limits, args)
 	
 	return data
+
+import pandas as pd
+from typing import Callable, List, Optional, Tuple
+
+def dataframe_to_axis(data_frame: pd.DataFrame, x_axis: str, episode_limits) -> Tuple[np.ndarray, np.ndarray]:
+	"""
+	Decompose a data frame variable to x ans ys
+
+	:param data_frame: the input data
+	:param x_axis: the axis for the x and y output
+		(can be X_TIMESTEPS='timesteps', X_EPISODES='episodes' or X_WALLTIME='walltime_hrs')
+	:return: the x and y output
+	"""
+	[first_episode, last_episode] = episode_limits
+
+	if x_axis == X_TIMESTEPS:
+		x_var = np.sum(data_frame.loc[:first_episode-1,'l']) + np.cumsum(data_frame.loc[first_episode:last_episode-1,'l'].values)
+
+	elif x_axis == X_EPISODES:
+		x_var = np.arange(first_episode, last_episode)
+
+	elif x_axis == X_WALLTIME:
+		x_var = data_frame.loc[first_episode:last_episode-1,'t'].values / 3600.0
+
+	else:
+		raise NotImplementedError
+
+	return x_var
 
 def plot_data(ax, x, y, label) -> bool:
 
@@ -310,38 +388,13 @@ def plot_data(ax, x, y, label) -> bool:
 	ax.plot(x, y, linewidth=2, label=label)
 	return True
 
-def get_training_data(y, x_axis, data_frame, args):
-	x, _ = ts2xy(data_frame, x_axis_dict[x_axis])
+def get_training_data(y, x_axis, data_frame, episode_limits, args):
+	x = dataframe_to_axis(data_frame, axis_data_dict[x_axis], episode_limits)
 	if "episode_window" in args and x.shape[0] < args.episode_window:
 		#print("Warning: cannot plot because episode window is larger than data")
 		warnings.warn("Cannot plot because episode window is larger than data")
 		return None
 	return window_func(x, y, args.episode_window, np.mean)
-
-def get_evaluation_data(y, folder):
-
-	env = get_env_name(folder)
-	
-	# dirs[0] should be the folder containing args.yml
-	dirs = get_env_dirs(folder, env)
-	
-	if len(dirs) == 0:
-		return None
-
-	args_file = os.path.join(dirs[0], "args.yml")
-	f = open(args_file, 'r')
-	yaml_args = yaml.unsafe_load(f)
-
-	freq = yaml_args["eval_freq"]
-	ep = yaml_args["eval_episodes"]
-
-	x = []
-	y_tmp = []
-	for i in range(int(len(y)/ep)):
-		x.append((i+1)*freq)
-		y_tmp.append(np.mean([y[int(i*ep+j)] for j in range(ep)]))
-
-	return np.array(x), y_tmp
 
 def parse_arguments():
 
@@ -376,7 +429,7 @@ def parse_arguments():
 		choices=x_axis_choices, 
 		nargs="+", 
 		type=str, 
-		default=[X_STEP])
+		default=[KEY_STEP])
 		
 	# y-axis
 	parser.add_argument(
@@ -385,13 +438,44 @@ def parse_arguments():
 		choices=y_axis_choices, 
 		nargs="+", 
 		type=str, 
-		default=[Y_ALL])
+		default=[KEY_ALL])
+
+	# Min timesteps
+	parser.add_argument(
+		"-min_steps", "--min-timesteps", 
+		help="Min number of timesteps to display", 
+		type=int)
 
 	# Max timesteps
 	parser.add_argument(
-		"-max", "--max-timesteps", 
+		"-max_steps", "--max-timesteps", 
 		help="Max number of timesteps to display", 
 		type=int)
+
+	# Min episodes
+	parser.add_argument(
+		"-min_episodes", "--min-episodes", 
+		help="Min episodes to display", 
+		type=int)
+
+	# Max episodes
+	parser.add_argument(
+		"-max_episodes", "--max-episodes", 
+		help="Max episodes to display", 
+		type=int)
+
+	# Min time
+	parser.add_argument(
+		"-min_time", "--min-time", 
+		help="Min time in hours", 
+		type=float)
+
+	# Max timesteps
+	parser.add_argument(
+		"-max_time", "--max-time", 
+		help="Max time in hours", 
+		type=float)
+
 
 	# Rolling window size
 	parser.add_argument(
@@ -404,12 +488,6 @@ def parse_arguments():
 	parser.add_argument(
 		"-rates", "--rates", 
 		help="Plot rates", 
-		action='store_true')
-
-	# Use evaluation data
-	parser.add_argument(
-		"-eval", "--evaluation", 
-		help="Use evaluation data", 
 		action='store_true')
 
 	# Max rows
@@ -447,13 +525,13 @@ def adapt_axes(x_axis, y_axis):
 	x_axis = remove_duplicates(x_axis)
 	y_axis = remove_duplicates(y_axis)
 
-	if Y_ALL in y_axis:
+	if KEY_ALL in y_axis:
 		y_axis = y_axis_list
-	elif Y_RATES in y_axis:
-		i = y_axis.index(Y_RATES)
+	elif KEY_RATES in y_axis:
+		i = y_axis.index(KEY_RATES)
 		y_axis = y_axis[:i] + rates + y_axis[i+1:]
 
-	if X_ALL in x_axis:
+	if KEY_ALL in x_axis:
 		x_axis = x_axis_list
 
 	x_axis = remove_duplicates(x_axis)
@@ -461,13 +539,21 @@ def adapt_axes(x_axis, y_axis):
 	
 	x_axis, y_axis = len(y_axis) * x_axis, [ax for y_ax in y_axis for ax in len(x_axis) * [y_ax]]
 
+	i = 0
+	while i < len(x_axis):
+		if x_axis[i] == y_axis[i]:
+			x_axis.pop(i)
+			y_axis.pop(i)
+		else:
+			i = i + 1
+
 	return x_axis, y_axis
 
 def adapt_axes_rates(x_axis):
 
 	x_axis = remove_duplicates(x_axis)
 
-	if X_ALL in x_axis:
+	if KEY_ALL in x_axis:
 		x_axis = x_axis_list
 
 	x_axis = remove_duplicates(x_axis)

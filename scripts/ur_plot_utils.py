@@ -13,82 +13,79 @@ SIZE_LEGEND = 10
 SIZE_AXES_LABEL = 10
 SIZE_DEFAULT = 10
 
-# Y
-Y_ALL = 'all'
+# AXIS KEYS
+KEY_ALL = 'all'
 
-Y_RATES = 'rates'
-Y_SUCCESS = 'success'
-Y_COLLISION = 'collision'
-Y_MAX_STEPS_EXCEEDED = 'max_steps_exceeded'
-Y_FAILURE = 'failure'
+KEY_STEP = 'steps'
+KEY_EPISODE = 'episodes'
+KEY_TIME = 'time'
 
-Y_LENGTH = 'length'
-Y_REWARD = 'reward'
+KEY_REWARD = 'reward'
+KEY_LENGTH = 'length'
 
-failure_rates = [Y_MAX_STEPS_EXCEEDED, Y_COLLISION, Y_FAILURE]
-rates = [Y_SUCCESS] + failure_rates
-y_axis_list = [Y_REWARD, Y_LENGTH] + rates
-y_axis_choices = [Y_ALL, Y_RATES] + y_axis_list
+KEY_RATES = 'rates'
+KEY_SUCCESS = 'success'
+KEY_FAILURE = 'failure'
+KEY_COLLISION = 'collision'
+KEY_MAX_STEPS_EXCEEDED = 'max_steps_exceeded'
 
-# X
-X_ALL = 'all'
-X_STEP = 'steps'
-X_EPISODE = 'episodes'
-X_TIME = 'time'
+failure_rates = [KEY_FAILURE, KEY_MAX_STEPS_EXCEEDED, KEY_COLLISION]
+rates = [KEY_SUCCESS] + failure_rates
 
-x_axis_list = [X_STEP, X_EPISODE, X_TIME]
-x_axis_choices = [X_ALL] + x_axis_list
+x_axis_list = [KEY_STEP, KEY_EPISODE, KEY_TIME]
+x_axis_choices = [KEY_ALL] + x_axis_list
+
+y_axis_list = [KEY_REWARD, KEY_LENGTH] + rates + x_axis_list
+y_axis_choices = [KEY_ALL, KEY_RATES] + y_axis_list
+
 
 title_dict = {
-	Y_SUCCESS: 'Success Rate',
-	Y_MAX_STEPS_EXCEEDED: 'Max Steps Exceeded Rate',
-	Y_COLLISION: 'Collision Rate',
-	Y_FAILURE : 'Failure Rate',
-	Y_RATES : 'All Rates',
-	Y_ALL: 'All',
-	Y_REWARD: 'Episodic Reward',
-	Y_LENGTH: 'Episode Length',
+	KEY_SUCCESS: 'Success Rate',
+	KEY_MAX_STEPS_EXCEEDED: 'Max Steps Exceeded Rate',
+	KEY_COLLISION: 'Collision Rate',
+	KEY_FAILURE : 'Failure Rate',
+	KEY_RATES : 'All Rates',
+	KEY_ALL: 'All',
+	KEY_REWARD: 'Episodic Reward',
+	KEY_LENGTH: 'Episode Length',
+	KEY_STEP: 'Timesteps',
+	KEY_EPISODE: 'Episodes',
+	KEY_TIME: 'Walltime',
 }
 
-y_label_dict = {
-	Y_SUCCESS: 'Rate (%)',
-	Y_MAX_STEPS_EXCEEDED: 'Rate (%)',
-	Y_FAILURE : 'Rate (%)',
-	Y_COLLISION: 'Rate (%)',
-	Y_RATES : 'Rate (%)',
-	Y_REWARD: 'Reward',
-	Y_LENGTH: 'Steps',
+axis_label_dict = {
+	KEY_SUCCESS: 'Rate (%)',
+	KEY_MAX_STEPS_EXCEEDED: 'Rate (%)',
+	KEY_FAILURE : 'Rate (%)',
+	KEY_COLLISION: 'Rate (%)',
+	KEY_RATES : 'Rate (%)',
+	KEY_REWARD: 'Reward',
+	KEY_LENGTH: 'Steps',
+	KEY_STEP: 'Timesteps',
+	KEY_EPISODE: 'Episodes',
+	KEY_TIME: 'Walltime (in hours)',
 }
 
-y_axis_dict = {
-	Y_SUCCESS: 'final_status',
-	Y_MAX_STEPS_EXCEEDED: 'final_status',
-	Y_COLLISION: 'final_status',
-	Y_ALL: 'final_status',
-	Y_RATES : 'final_status',
-	Y_FAILURE: 'final_status',
-	Y_REWARD: 'r',
-	Y_LENGTH: 'l',
-}
-
-x_label_dict = {
-	X_STEP: 'Timesteps',
-	X_EPISODE: 'Episodes',
-	X_TIME: 'Walltime (in hours)',
-}
-
-x_axis_dict = {
-		X_STEP: X_TIMESTEPS,
-		X_EPISODE: X_EPISODES,
-		X_TIME: X_WALLTIME,
+axis_data_dict = {
+	KEY_SUCCESS: 'final_status',
+	KEY_MAX_STEPS_EXCEEDED: 'final_status',
+	KEY_COLLISION: 'final_status',
+	KEY_ALL: 'final_status',
+	KEY_RATES : 'final_status',
+	KEY_FAILURE: 'final_status',
+	KEY_REWARD: 'r',
+	KEY_LENGTH: 'l',
+	KEY_STEP: X_TIMESTEPS,
+	KEY_EPISODE: X_EPISODES,
+	KEY_TIME: X_WALLTIME,
 }
 
 def compare_status(status1, status2) -> bool:
-	if (status1 == Y_ALL or status2 == Y_ALL):
+	if (status1 == KEY_ALL or status2 == KEY_ALL):
 		return True
-	if (status1 == Y_FAILURE):
+	if (status1 == KEY_FAILURE):
 		return status2 in failure_rates
-	if (status2 == Y_FAILURE):
+	if (status2 == KEY_FAILURE):
 		return status1 in failure_rates
 	return status1 == status2
 

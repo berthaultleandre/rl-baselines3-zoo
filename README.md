@@ -14,7 +14,7 @@ In addition, it includes a collection of tuned hyperparameters for common enviro
 
 
 We are **looking for contributors** to complete the collection!
-TEST
+
 Goals of this repository:
 
 1. Provide a simple interface to train and enjoy RL agents

@@ -157,6 +157,7 @@ env_key_to_env_id = {
     "Ant": "AntBulletEnv-v0",
     "Hopper": "HopperBulletEnv-v0",
     "Walker": "Walker2DBulletEnv-v0",
+    "Positioning": "EndEffectorPositioningURSim-v0",
 }
 # Backward compat
 skip_all_algos_dict = False

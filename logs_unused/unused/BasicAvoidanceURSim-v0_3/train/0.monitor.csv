@@ -1,0 +1,18 @@
+#{"t_start": 1653033792.9439106, "env_id": "BasicAvoidanceURSim-v0"}
+r,l,t,final_status,is_success
+-0.009075,70,9.414189,collision,False
+0.001237,77,15.180294,collision,False
+-0.483148,1000,66.576624,success,True
+0.791577,1000,118.051811,success,True
+-0.11463,115,125.506143,collision,False
+-0.023744,26,129.086493,collision,False
+0.058941,269,144.418132,collision,False
+0.756952,1000,195.947534,success,True
+0.257194,1000,247.900352,success,True
+-0.025836,29,251.363117,collision,False
+-0.024991,61,256.032887,collision,False
+-0.11568,274,271.416988,collision,False
+-0.024319,75,277.307546,collision,False
+0.527191,1000,329.292087,success,True
+-0.079119,83,335.282948,collision,False
+-0.010501,50,339.522167,collision,False

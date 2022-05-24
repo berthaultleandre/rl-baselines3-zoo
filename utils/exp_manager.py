@@ -516,13 +516,20 @@ class ExperimentManager:
         :return: the vectorized environment, with appropriate wrappers
         """
         # Do not log eval env (issue with writing the same file)
-        log_dir = None if eval_env or no_log else self.save_path
-
+        #log_dir = None if no_log or eval_env else self.save_path
+        if no_log:
+            log_dir = None
+        elif eval_env:
+            log_dir = os.path.join(self.save_path, "eval")
+        else:
+            log_dir = os.path.join(self.save_path, "train")
         monitor_kwargs = {}
         # Special case for GoalEnvs: log success rate too
         if "Neck" in self.env_id or self.is_robotics_env(self.env_id) or "parking-v0" in self.env_id:
             monitor_kwargs = dict(info_keywords=("is_success",))
-
+        if "UR" in self.env_id:
+        	monitor_kwargs = dict(info_keywords=("final_status", "is_success"),)
+        
         # On most env, SubprocVecEnv does not help and is quite memory hungry
         # therefore we use DummyVecEnv by default
         env = make_vec_env(

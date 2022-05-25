@@ -4,10 +4,6 @@ Plot training reward/success rate
 import argparse
 from cmath import inf
 import os
-from re import I
-from sqlalchemy import false
-
-import yaml
 import warnings
 from ur_plot_utils import *
 
@@ -16,9 +12,12 @@ import numpy as np
 import seaborn
 from matplotlib import gridspec, pyplot as plt
 from stable_baselines3.common.monitor import LoadMonitorResultsError, load_results
-from stable_baselines3.common.results_plotter import ts2xy, window_func
+from stable_baselines3.common.results_plotter import window_func
 
-def format_axis(data, axis):
+import pandas as pd
+from typing import Callable, List, Optional, Tuple
+
+def format_axis(data:List[float], axis:str) -> Tuple[List[float], str]:
 	label = axis_label_dict[axis]
 	if axis == KEY_STEP or axis == KEY_EPISODE:
 		powerOf10 = max([math.floor(1/3*(math.log(max(x),10)-1)) for x in data])
@@ -27,165 +26,143 @@ def format_axis(data, axis):
 			data = [x / 10 ** (3*powerOf10) for x in data]
 	return data, label
 
-def get_figure_shape(n_subplots, args):
+def get_figure_shape(n_subplots, args) -> Tuple[int, int]:
 	n_row = args.row
 	n_col = math.ceil(n_subplots / args.row)
 	if args.col:
 		n_col = min(n_col, args.col)
-
+	while n_row*(n_col-1) >= n_subplots:
+		n_col = n_col - 1
+	while n_row*n_col < n_subplots:
+		n_col = n_col + 1
 	while (n_row-1)*n_col >= n_subplots:
 		n_row = n_row - 1
 	return n_row, n_col
 
 def plot_results(args) -> None:
 
-	# Adapt axes
-	args.x_axis, args.y_axis = adapt_axes(args.x_axis, args.y_axis)
+	### Init ###
+	args.x_axis = adapt_x_axis(args.x_axis)
+	if (not args.rates):
+		args.y_axis = adapt_y_axis(args.x_axis, args.y_axis)
+		all_labels = []
 
-	args.exp_folder = remove_duplicates(args.exp_folder)
+	args.log_folder = remove_duplicates(args.log_folder)
 
-	titles, all_labels = [], []
-	x_labels, y_labels = [], []
-	x_data_all, y_data_all = [], []
+	two_x_axes = len(args.x_axis) == 2
 
-	# Gather data from files
-	for subplot_index in range(len(args.x_axis)):
-			
-		x_axis = args.x_axis[subplot_index]
-		y_axis = args.y_axis[subplot_index]
+	x1_axis = args.x_axis[0]
+	x1_labels, x1_all_data = [], []
 
-		y_label = axis_label_dict[y_axis]
+	if (two_x_axes):
+		x2_axis = args.x_axis[1]
+		x2_labels, x2_all_data = [], []
+	
+	y_labels, y_all_data = [], []
+	titles = []
 
-		title = str(title_dict[y_axis]) + " (" + str(title_dict[x_axis]) + ")"
-
-		x_data_agent, y_data_agent = [], []
-
-		labels = []
-
-		empty_axis = True
+	if args.rates:
 		
-		for exp_folder in args.exp_folder:
-			dirs = []
-			algos = args.algo if args.algo else os.listdir(exp_folder)
-			for algo in algos:
-				log_path = os.path.join(exp_folder, algo.lower())
-				if os.path.isdir(log_path):
-					if not args.env:
-						dirs.extend([os.path.join(log_path, f) for f in os.listdir(log_path)])
-					else:
-						for env in args.env:
-							dirs.extend(get_env_dirs(log_path, env))
+		# Gather all experience folders
+		exp_folders = []
+		for log_folder in args.log_folder:
+			exp_folders.extend(get_experiment_folders(log_folder, args.algo, args.env))
 
-			# Gather data from folders
-			for folder in dirs:
-				data = load_data(folder, x_axis, y_axis, args)
-				if data is not None:
-					labels.append(get_experiment_info(folder))
+		# Gather data from folder
+		for exp_folder in exp_folders:
+
+			x1_data_agent, y_data_agent = [], []
+			if (two_x_axes):
+				x2_data_agent = []
+
+			empty_axis = True
+			for rate in rates:
+				y_axis = rate
+
+				data = load_data(exp_folder, x1_axis, y_axis, args)
+				if (two_x_axes):
+					data_twin = load_data(exp_folder, x2_axis, y_axis, args)
+
+				if data is not None and (not two_x_axes or data_twin is not None):
+					title = get_experiment_info(exp_folder)
 					empty_axis = False
 					x, y = data
-					x_data_agent, y_data_agent = x_data_agent + [x], y_data_agent + [y]
-
-		if not empty_axis:
-			x_data_agent, x_label = format_axis(x_data_agent, x_axis)
-			y_data_agent, y_label = format_axis(y_data_agent, y_axis)
-
-			# Store data
-			titles.append(title)
-			x_labels.append(x_label) 
-			y_labels.append(y_label)
-			x_data_all.append(x_data_agent)
-			y_data_all.append(y_data_agent)
-			all_labels.append(labels)
-
-	# Number of plots
-	n_subplots = len(titles)
-	if n_subplots == 0:
-		print("No data to display")
-		return
-
-	# Create figure
-	fig, gs = create_figure(n_subplots, args)
-
-	legend_labels, legend_handles = [], []
-
-	# Create subplots
-	for subplot_index in range(n_subplots):
-
-		ax = fig.add_subplot(gs[subplot_index])
-		title = titles[subplot_index]
-		x_label = x_labels[subplot_index]
-		y_label = y_labels[subplot_index]
-		ax.set(title=title, xlabel=x_label, ylabel=y_label)
-
-		# Plot data on subplot
-		for curve_index in range(len(x_data_all[subplot_index])):
-			x_data = x_data_all[subplot_index][curve_index]
-			y_data = y_data_all[subplot_index][curve_index]
-			label = all_labels[subplot_index][curve_index]
-			plot_data(ax, x_data, y_data, label)
+					x1_data_agent.append(x)
+					y_data_agent.append(y)
+					if (two_x_axes):
+						x_twin, _ = data_twin
+						x2_data_agent.append(x_twin)
 			
-		# Update legend
-		handles_tmp, labels_tmp = ax.get_legend_handles_labels()
-		for i in range(len(labels_tmp)):
-			if labels_tmp[i] in legend_labels:
-				handles_tmp[i].set_color(legend_handles[legend_labels.index(labels_tmp[i])].get_color())
-			else:
-				legend_labels.append(labels_tmp[i])
-			legend_handles.append(handles_tmp[i])
+			if not empty_axis:
+				x1_data_agent, x1_label = format_axis(x1_data_agent, x1_axis)
 
+				# Store data
+				titles.append(title)
+				x1_labels.append(x1_label) 
+				x1_all_data.append(x1_data_agent)
+				y_all_data.append(y_data_agent)
+				if (two_x_axes):
+					x2_data_agent, x2_label = format_axis(x2_data_agent, x2_axis)
+					x2_labels.append(x2_label) 
+					x2_all_data.append(x2_data_agent)
 
-	adjust_figure(fig, legend_labels, args)
+	else:
 
-	plt.show()
+		for subplot_index in range(len(args.y_axis)):
 
-def plot_rates(args) -> None:
+			y_axis = args.y_axis[subplot_index]
+			
+			if (two_x_axes):
+				x2_axis_tmp = x2_axis
 
-	args.x_axis = adapt_axes_rates(args.x_axis)
+			x1_axis_tmp, y_axis_tmp = x1_axis, y_axis
+			#if (y_axis in x_axis_list):
+			#	if (two_x_axes):
+			#		x1_axis_tmp, x2_axis_tmp, y_axis_tmp = x2_axis, y_axis, x1_axis
+			#	else:
+			#		x1_axis_tmp, y_axis_tmp = y_axis, x1_axis
 
-	titles = []
-	x_labels = []
-	x_data_all, y_data_all = [], []
+			x1_data_agent, y_data_agent = [], []
+			if (two_x_axes):
+				x2_data_agent = []
 
-	for x_axis_index in range(len(args.x_axis)):
-		x_axis = args.x_axis[x_axis_index]
-		for exp_folder in args.exp_folder:
-			algos = args.algo if args.algo else os.listdir(exp_folder)
-			for algo in algos:
-				log_path = os.path.join(exp_folder, algo.lower())
-				if os.path.isdir(log_path):
-					if not args.env:
-						dirs = [os.path.join(log_path, f) for f in os.listdir(log_path)]
-					else:
-						dirs = []
-						for env in args.env:
-							dirs.extend(get_env_dirs(log_path, env))
+			labels = []
 
-					# Gather data from folder
-					for folder in dirs:
+			# Gather data from folders
+			empty_axis = True
+			for log_folder in args.log_folder:
+				exp_folders = get_experiment_folders(log_folder, args.algo, args.env)
+				for exp_folder in exp_folders:
+					if (two_x_axes):
+						data_twin = load_data(exp_folder, x2_axis_tmp, y_axis_tmp, args)
+					title = str(title_dict[y_axis_tmp])
+					data = load_data(exp_folder, x1_axis_tmp, y_axis_tmp, args)
+					if data is not None and (not two_x_axes or data_twin is not None):
+						labels.append(get_experiment_info(exp_folder))
+						empty_axis = False
+						x, y = data
+						x1_data_agent.append(x)
+						y_data_agent.append(y)
+						if (two_x_axes):
+							x_twin, _ = data_twin
+							x2_data_agent.append(x_twin)
 
-						x_data_agent, y_data_agent = [], []
+			if not empty_axis:
+				x1_data_agent, x_label = format_axis(x1_data_agent, x1_axis_tmp)
+				y_data_agent, y_label = format_axis(y_data_agent, y_axis_tmp)
+				# Store data
+				titles.append(title)
+				x1_labels.append(x_label) 
+				y_labels.append(y_label)
+				x1_all_data.append(x1_data_agent)
+				y_all_data.append(y_data_agent)
+				if (two_x_axes):
+					x2_data_agent, x2_label = format_axis(x2_data_agent, x2_axis_tmp)
+					x2_labels.append(x2_label) 
+					x2_all_data.append(x2_data_agent)
+				all_labels.append(labels)
 
-						empty_axis = True
-						for rate in rates:
-							y_axis = rate
-							data = load_data(folder, x_axis, y_axis, args)
-							if data is not None:
-								title = get_experiment_info(folder)
-								empty_axis = False
-								x, y = data
-								x_data_agent, y_data_agent = x_data_agent + [x], y_data_agent + [y]
-						
-						if not empty_axis:
-							x_data_agent, x_label = format_axis(x_data_agent, x_axis)
-
-							# Store data
-							titles.append(title)
-							x_labels.append(x_label) 
-							x_data_all.append(x_data_agent)
-							y_data_all.append(y_data_agent)
-
-
-	# Number of plots
+	# Number of subplots
 	n_subplots = len(titles)
 	if n_subplots == 0:
 		print("No data to display")
@@ -194,53 +171,86 @@ def plot_rates(args) -> None:
 	# Create figure
 	fig, gs = create_figure(n_subplots, args)
 
+	if args.rates:
+		rate_index = 0
+		legend_labels = [title_dict[rate] for rate in rates]
+	else:
+		legend_labels, legend_handles = [], []
+
 	# Create subplots
-	rate_index = 0
 	for subplot_index in range(n_subplots):
 
 		ax = fig.add_subplot(gs[subplot_index])
+
 		title = titles[subplot_index]
-		x_label = x_labels[subplot_index]
-		y_label = axis_label_dict[KEY_RATES]
+		x_label = x1_labels[subplot_index]
+		if args.rates:
+			y_label = axis_label_dict[KEY_RATES]
+		else:
+			y_label = y_labels[subplot_index]
+
 		ax.set(title=title, xlabel=x_label, ylabel=y_label)
 
-		# Plot data on subplot
-		for curve_index in range(len(x_data_all[subplot_index])):
-			x_data = x_data_all[subplot_index][curve_index]
-			y_data = y_data_all[subplot_index][curve_index]
-			label = rates[rate_index]
-			plot_data(ax, x_data, y_data, label)
-			rate_index = (rate_index + 1) % len(rates)
+		if (two_x_axes):
+			x2_label = x2_labels[subplot_index]
+			ax2 = ax.twiny()
+			ax2.set(xlabel=x2_label)
+			# Hide twin axis grid lines
+			ax2.grid(False)
 
-	legend_labels = [title_dict[rate] for rate in rates]
-	adjust_figure(fig, legend_labels, args)
+		# Plot data on subplot
+		for curve_index in range(len(x1_all_data[subplot_index])):
+			x1_data = x1_all_data[subplot_index][curve_index]
+			y_data = y_all_data[subplot_index][curve_index]
+			if args.rates:
+				label = rates[rate_index]
+			else:
+				label = all_labels[subplot_index][curve_index]
+			plot_data(ax, x1_data, y_data, label, args.line_width, False)
+			if (two_x_axes):
+				x2_data = x2_all_data[subplot_index][curve_index]
+				plot_data(ax2, x2_data, np.zeros(len(x2_data)), "", args.line_width, True)
+			if args.rates:
+				rate_index = (rate_index + 1) % len(rates)
+
+		if not args.rates:
+			# Update legend
+			handles_tmp, labels_tmp = ax.get_legend_handles_labels()
+			for i in range(len(labels_tmp)):
+				if labels_tmp[i] in legend_labels:
+					handles_tmp[i].set_color(legend_handles[legend_labels.index(labels_tmp[i])].get_color())
+				else:
+					legend_labels.append(labels_tmp[i])
+				legend_handles.append(handles_tmp[i])
+
+	adjust_figure(fig, args.figure_title, legend_labels)
 
 	plt.show()
+
+def get_experiment_folders(log_folder, algos, envs) -> List[str]:
+	dirs = []
+	algos = algos if algos else os.listdir(log_folder)
+	for algo in algos:
+		log_path = os.path.join(log_folder, algo.lower())
+		if os.path.isdir(log_path):
+			if not envs:
+				dirs.extend([os.path.join(log_path, f) for f in os.listdir(log_path)])
+			else:
+				for env in envs:
+					dirs.extend(get_env_dirs(log_path, env))
+	return dirs
 	
-def create_figure(n_subplots, args):
-	# Number of rows and columns
+def create_figure(n_subplots, args) -> Tuple[plt.Figure, gridspec.GridSpec]:
 	n_row, n_col = get_figure_shape(n_subplots, args)
-
 	gs = gridspec.GridSpec(n_row, n_col)
-	if not args.figsize:
-		args.figsize = [6.4*2, 4.8*2]
-
 	fig = plt.figure(figsize=args.figsize)
-
 	return fig, gs
 
-def adjust_figure(fig, legend_labels, args):
-	# Create legend
+def adjust_figure(fig, title, legend_labels) -> None:
 	legend = fig.legend(legend_labels, loc='lower right')
 	legend.set_draggable(True)
-
-	# Set figure title
-	figtitle = "Training results"
-
-	fig.suptitle(figtitle, fontsize=16)
-
-	# Adjust subplots dimensions
-	fig.subplots_adjust(left=0.07, bottom=9/80 + 2/80 * len(legend_labels), right=0.93, top=0.9, wspace=0.3, hspace=0.5)
+	fig.suptitle(title)
+	fig.tight_layout()
 
 def get_experiment_info(folder) -> str:
 	experiment_index = get_experiment_index(folder)
@@ -258,9 +268,25 @@ def get_experiment_index(folder) -> str:
 def get_env_name(folder) -> str:
 	return folder.split('/')[-1].split('-')[0]
 
-def get_episode_limits(data_frame, args):
-	first_episode, last_episode = 0, len(data_frame)
+def get_dataset_limits(dataset, min_val, max_val):
+	low_limit = 0
+	high_limit = len(dataset)
+	i = 0
+	found_min = False
+	for e in dataset:
+		if (not found_min and e >= min_val):
+			low_limit = i
+			found_min = True
+		if (e >= max_val):
+			high_limit = i - 1
+			break
+		i = i + 1
+	if not found_min:
+		return None
+	return low_limit, high_limit
 
+def get_episode_limits(data_frame, args) -> Tuple[int, int]:
+	first_episode, last_episode = 0, len(data_frame)
 	# Episodes
 	if args.min_episodes is not None or args.max_episodes is not None:
 		min_val = min(max(0, args.min_episodes), len(data_frame)) if args.min_episodes else 0
@@ -270,30 +296,18 @@ def get_episode_limits(data_frame, args):
 			return None
 		first_episode = max(first_episode, min_val)
 		last_episode = min(last_episode, max_val)
-
 	# Steps
-	if args.min_timesteps is not None or args.max_timesteps is not None:
-		min_val = args.min_timesteps if args.min_timesteps else 0
-		max_val = args.max_timesteps if args.max_timesteps else inf
-
+	if args.min_steps is not None or args.max_steps is not None:
+		min_val = args.min_steps if args.min_steps else 0
+		max_val = args.max_steps if args.max_steps else inf
 		if min_val > max_val:
 			print(f"Min cannot be greater than max (steps)")
 			return None
-		s = 0
-		i = 0
-		found_min = False
-		for e in data_frame.loc[:,'l']:
-			s = s + e
-			if (not found_min and s >= min_val):
-				first_episode = max(first_episode, i)
-				found_min = True
-			if (s >= max_val):
-				last_episode = min(last_episode, i - 1)
-				break
-			i = i + 1
-		if not found_min:
-			return None
-
+		limits = get_dataset_limits(np.cumsum(data_frame.loc[:,'l'].values), min_val, max_val)
+		if limits is not None:
+			first_episode = max(first_episode, limits[0])
+			last_episode = min(last_episode, limits[1])
+			
 	# Time
 	if args.min_time is not None or args.max_time is not None:
 		min_val = args.min_time if args.min_time else 0
@@ -301,22 +315,14 @@ def get_episode_limits(data_frame, args):
 		if min_val >= max_val:
 			print(f"Min cannot be greater than max (time)")
 			return None
-		i = 0
-		found_min = False
-		for e in data_frame.loc[:,'t']:
-			if (not found_min and e > min_val * 3600):
-				first_episode = max(first_episode, i)
-				found_min = True
-			if (e > max_val * 3600):
-				last_episode = min(last_episode, i - 1)
-				break
-			i = i + 1
-		if not found_min:
-			return None
+		limits = get_dataset_limits(data_frame.loc[:,'t'] / 3600.0, min_val, max_val)
+		if limits is not None:
+			first_episode = max(first_episode, limits[0])
+			last_episode = min(last_episode, limits[1])
 
 	return first_episode, last_episode
 
-def load_data(folder, x_axis, y_axis, args):
+def load_data(folder, x_axis, y_axis, args) -> Tuple[List[float], List[float]]:
 	if not os.path.isdir(folder):
 		return None
 
@@ -332,7 +338,7 @@ def load_data(folder, x_axis, y_axis, args):
 		return None
 
 	if y_axis in x_axis_list:
-		y = dataframe_to_axis(data_frame, axis_data_dict[y_axis], episode_limits)
+		y = dataframe_to_axis(data_frame, y_axis, episode_limits)
 	else:
 		try:
 			y = np.array(data_frame.loc[episode_limits[0]:episode_limits[1]-1, axis_data_dict[y_axis]])
@@ -340,22 +346,24 @@ def load_data(folder, x_axis, y_axis, args):
 			print(f"No data available for {folder}")
 			return None
 		
-		# If y_axis is in rates then y is an array of string (e.g. ["collision", "success", ...])
-		# so we need to transform y with compare_status which acts like a step function
+		# If y_axis is a rate, then y is a list of string (e.g. ["collision", "success", ...])
+		# We transform y into a list of float using compare_status
 		if y_axis in rates:
-			y = np.array([compare_status(status, y_axis) for status in y])
+			y = 100 * np.array([compare_status(status, y_axis) for status in y])
 
 	if len(y) == 0:
 		return None
 
-	data = get_training_data(y, x_axis, data_frame, episode_limits, args)
-	
-	return data
+	x = dataframe_to_axis(data_frame, x_axis, episode_limits)
+	if not y_axis in x_axis_list:
+		if args.episode_window and x.shape[0] < args.episode_window:
+			warnings.warn("Cannot plot because episode window is larger than data")
+			return None
+		x, y = window_func(x, y, args.episode_window, np.mean)
 
-import pandas as pd
-from typing import Callable, List, Optional, Tuple
+	return x, y
 
-def dataframe_to_axis(data_frame: pd.DataFrame, x_axis: str, episode_limits) -> Tuple[np.ndarray, np.ndarray]:
+def dataframe_to_axis(data_frame: pd.DataFrame, axis_key: str, episode_limits) -> Tuple[np.ndarray, np.ndarray]:
 	"""
 	Decompose a data frame variable to x ans ys
 
@@ -365,14 +373,15 @@ def dataframe_to_axis(data_frame: pd.DataFrame, x_axis: str, episode_limits) -> 
 	:return: the x and y output
 	"""
 	[first_episode, last_episode] = episode_limits
+	x_data_name = axis_data_dict[axis_key]
 
-	if x_axis == X_TIMESTEPS:
+	if x_data_name == X_TIMESTEPS:
 		x_var = np.sum(data_frame.loc[:first_episode-1,'l']) + np.cumsum(data_frame.loc[first_episode:last_episode-1,'l'].values)
 
-	elif x_axis == X_EPISODES:
+	elif x_data_name == X_EPISODES:
 		x_var = np.arange(first_episode, last_episode)
 
-	elif x_axis == X_WALLTIME:
+	elif x_data_name == X_WALLTIME:
 		x_var = data_frame.loc[first_episode:last_episode-1,'t'].values / 3600.0
 
 	else:
@@ -380,33 +389,22 @@ def dataframe_to_axis(data_frame: pd.DataFrame, x_axis: str, episode_limits) -> 
 
 	return x_var
 
-def plot_data(ax, x, y, label) -> bool:
-
+def plot_data(ax, x, y, label, line_width, hide) -> bool:
 	if (len(x) == 0 or len(y) == 0):
 		return False
-
-	ax.plot(x, y, linewidth=2, label=label)
+	ax.plot(x, y, linewidth=line_width, label=label, linestyle=('None' if hide else '-'))
 	return True
 
-def get_training_data(y, x_axis, data_frame, episode_limits, args):
-	x = dataframe_to_axis(data_frame, axis_data_dict[x_axis], episode_limits)
-	if "episode_window" in args and x.shape[0] < args.episode_window:
-		#print("Warning: cannot plot because episode window is larger than data")
-		warnings.warn("Cannot plot because episode window is larger than data")
-		return None
-	return window_func(x, y, args.episode_window, np.mean)
-
-def parse_arguments():
-
+def parse_arguments() -> argparse.Namespace:
 	parser = argparse.ArgumentParser("Gather results, plot training reward/success")
 
 	# Experience folders
 	parser.add_argument(
-		"-f", "--exp-folder", 
+		"-f", "--log-folder", 
 		help="Experience folder(s) to include", 
 		nargs="+", 
 		type=str, 
-		default=["logs/"])
+		default=LOG_FOLDER_DEFAULT)
 
 	# Algorithms
 	parser.add_argument(
@@ -422,33 +420,33 @@ def parse_arguments():
 		nargs="+", 
 		type=str)
 
-	# x-axis
+	# X-axis
 	parser.add_argument(
 		"-x", "--x-axis", 
 		help="X-axis", 
 		choices=x_axis_choices, 
 		nargs="+", 
 		type=str, 
-		default=[KEY_STEP])
+		default=X_AXIS_DEFAULT)
 		
-	# y-axis
+	# Y-axis
 	parser.add_argument(
 		"-y", "--y-axis", 
 		help="Y-axis", 
 		choices=y_axis_choices, 
 		nargs="+", 
 		type=str, 
-		default=[KEY_ALL])
+		default=Y_AXIS_DEFAULT)
 
 	# Min timesteps
 	parser.add_argument(
-		"-min_steps", "--min-timesteps", 
+		"-min_steps", "--min-steps", 
 		help="Min number of timesteps to display", 
 		type=int)
 
 	# Max timesteps
 	parser.add_argument(
-		"-max_steps", "--max-timesteps", 
+		"-max_steps", "--max-steps", 
 		help="Max number of timesteps to display", 
 		type=int)
 
@@ -476,13 +474,12 @@ def parse_arguments():
 		help="Max time in hours", 
 		type=float)
 
-
 	# Rolling window size
 	parser.add_argument(
 		"-w", "--episode-window", 
 		help="Rolling window size (in episodes)", 
 		type=int, 
-		default=200)
+		default=ROLLING_WINDOW_DEFAULT)
 
 	# Plot rates
 	parser.add_argument(
@@ -493,9 +490,9 @@ def parse_arguments():
 	# Max rows
 	parser.add_argument(
 		"-r", "--row",
-		help="Figure preferred number of rows",
+		help="Figure preferred count of rows",
 		type=int,
-		default=3)
+		default=ROW_COUNT_DEFAULT)
 
 	# Max columns
 	parser.add_argument(
@@ -503,81 +500,81 @@ def parse_arguments():
 		help="Figure preferred max number of columns",
 		type=int)
 
+	# Figure title
+	parser.add_argument(
+		"-title", "--figure_title", 
+		help="Figure title", 
+		type=str,
+		default=FIGURE_TITLE_DEFAULT)
+
+	# Line width
+	parser.add_argument(
+		"-line_width", 
+		help="Line size", 
+		type=float,
+		default=LINE_WIDTH_DEFAULT)
+
+	# Font size
+	parser.add_argument(
+		"-font_size", 
+		help="Font size", 
+		type=int,
+		default=FONT_SIZE_DEFAULT)
+
 	# Figure size
 	parser.add_argument(
 		"-size", "--figsize", 
 		help="Figure size as [width, height] in inches", 
 		nargs=2, 
-		type=int)
+		type=int,
+		default=FIGURE_SIZE_DEFAULT)
 
 	return parser.parse_args()
 
-def set_font_size():
-	plt.rc('font', size=SIZE_DEFAULT)          # controls default text sizes
-	plt.rc('axes', titlesize=SIZE_AXES_TITLE)    # fontsize of the axes title
-	plt.rc('axes', labelsize=SIZE_AXES_LABEL)    # fontsize of the x and y labels
-	plt.rc('xtick', labelsize=SIZE_AXES_TICK)    # fontsize of the tick labels
-	plt.rc('ytick', labelsize=SIZE_AXES_TICK)    # fontsize of the tick labels
-	plt.rc('legend', fontsize=SIZE_LEGEND)    # legend fontsize
-	plt.rc('figure', titlesize=SIZE_FIGURE_TITLE)  # fontsize of the figure title
+def set_font_parameters(fontsize) -> None:
+	ds = fontsize - FONT_SIZE_DEFAULT
+	#print(plt.rcParams.keys())
+	plt.rcParams["axes.titleweight"] = BOLD
+	plt.rcParams["figure.titleweight"] = BOLD
+	plt.rc('font', size=FONT_SIZE_DEFAULT + ds)              # controls default text sizes
+	plt.rc('axes', titlesize=FONT_SIZE_AXES_TITLE + ds)      # fontsize of the axes title
+	plt.rc('axes', labelsize=FONT_SIZE_AXES_LABEL + ds)      # fontsize of the x and y labels
+	plt.rc('xtick', labelsize=FONT_SIZE_AXES_TICK + ds)      # fontsize of the tick labels
+	plt.rc('ytick', labelsize=FONT_SIZE_AXES_TICK + ds)      # fontsize of the tick labels
+	plt.rc('legend', fontsize=FONT_SIZE_LEGEND + ds)    	   # legend fontsize
+	plt.rc('figure', titlesize=FONT_SIZE_FIGURE_TITLE + ds)  # fontsize of the figure title
 
-def adapt_axes(x_axis, y_axis):
-	x_axis = remove_duplicates(x_axis)
+def adapt_y_axis(x_axis, y_axis) -> List[str]:
 	y_axis = remove_duplicates(y_axis)
-
 	if KEY_ALL in y_axis:
 		y_axis = y_axis_list
 	elif KEY_RATES in y_axis:
 		i = y_axis.index(KEY_RATES)
 		y_axis = y_axis[:i] + rates + y_axis[i+1:]
-
-	if KEY_ALL in x_axis:
-		x_axis = x_axis_list
-
-	x_axis = remove_duplicates(x_axis)
 	y_axis = remove_duplicates(y_axis)
-	
-	x_axis, y_axis = len(y_axis) * x_axis, [ax for y_ax in y_axis for ax in len(x_axis) * [y_ax]]
+	y_axis = [ax for ax in y_axis if ax not in x_axis]
+	return y_axis
 
-	i = 0
-	while i < len(x_axis):
-		if x_axis[i] == y_axis[i]:
-			x_axis.pop(i)
-			y_axis.pop(i)
-		else:
-			i = i + 1
-
-	return x_axis, y_axis
-
-def adapt_axes_rates(x_axis):
-
+def adapt_x_axis(x_axis) -> List[str]:
 	x_axis = remove_duplicates(x_axis)
-
-	if KEY_ALL in x_axis:
-		x_axis = x_axis_list
-
-	x_axis = remove_duplicates(x_axis)
-
+	if len(x_axis) > 2:
+		raise ValueError("Argument x_axis does not accept more than two values")
 	return x_axis
 
-def check_args(args):
-	assert args.row > 0
-	if args.col:
-		assert args.col > 0
-	assert args.episode_window > 0
-	assert not args.max_timesteps or args.max_timesteps > 0
+def check_args(args) -> None:
+	if args.row <= 0:
+		raise ValueError("Argument row must be > 0")
+	if args.col and args.col <= 0:
+		raise ValueError("Argument col must be > 0")
+	if args.episode_window and args.episode_window <= 0:
+		raise ValueError("Argument w must be > 0")
 
-def main():
+def main() -> None:
 	seaborn.set()
-
-	set_font_size()
-
 	args = parse_arguments()
 	check_args(args)
-
-	plot_rates(args) if args.rates else plot_results(args)
-		
-	
+	set_font_parameters(args.font_size)
+	plot_results(args)
 
 if __name__ == '__main__':
 	main()

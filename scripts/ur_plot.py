@@ -39,128 +39,121 @@ def get_figure_shape(n_subplots, args) -> Tuple[int, int]:
 		n_row = n_row - 1
 	return n_row, n_col
 
+def gather_rates_data(x1_axis, x2_axis, args):
+	x1_data, x2_data, x1_labels, x2_labels = [], [], [], []
+	y_data, titles = [], []
+	two_x_axes = x2_axis is not None
+	# Gather all experience folders
+	exp_folders = []
+	for log_folder in args.log_folder:
+		exp_folders.extend(get_experiment_folders(log_folder, args.algo, args.env))
+
+	# Gather data from folder
+	for exp_folder in exp_folders:
+
+		x1_data_tmp, y_data_tmp = [], []
+		if (two_x_axes):
+			x2_data_tmp = []
+
+		empty_axis = True
+		for rate in rates:
+			y_axis = rate
+
+			data1 = load_data(exp_folder, x1_axis, y_axis, args)
+			if (two_x_axes):
+				data2 = load_data(exp_folder, x2_axis, y_axis, args)
+
+			if data1 is not None and (not two_x_axes or data2 is not None):
+				title = get_experiment_info(exp_folder)
+				empty_axis = False
+				x1_data_tmp.append(data1[0])
+				y_data_tmp.append(data1[1])
+				if (two_x_axes):
+					x2_data_tmp.append(data2[0])
+		
+		if not empty_axis:
+			x1_data_tmp, x1_label = format_axis(x1_data_tmp, x1_axis)
+
+			# Store data
+			titles.append(title)
+			x1_labels.append(x1_label) 
+			x1_data.append(x1_data_tmp)
+			y_data.append(y_data_tmp)
+			if (two_x_axes):
+				x2_data_tmp, x2_label = format_axis(x2_data_tmp, x2_axis)
+				x2_labels.append(x2_label) 
+				x2_data.append(x2_data_tmp)
+	return x1_data, x2_data, x1_labels, x2_labels, y_data, titles
+				
+def gather_data(x1_axis, x2_axis, args):
+
+	x1_data, x2_data, x1_labels, x2_labels = [], [], [], []
+	y_data, y_labels, all_labels, titles = [], [], [], []
+	
+	two_x_axes = x2_axis is not None
+
+	for subplot_index in range(len(args.y_axis)):
+
+		y_axis = args.y_axis[subplot_index]
+
+		x1_data_tmp, y_data_tmp = [], []
+		if (two_x_axes):
+			x2_data_tmp = []
+
+		labels = []
+
+		# Gather data from folders
+		empty_axis = True
+		for log_folder in args.log_folder:
+			exp_folders = get_experiment_folders(log_folder, args.algo, args.env)
+			for exp_folder in exp_folders:
+				if (two_x_axes):
+					data2 = load_data(exp_folder, x2_axis, y_axis, args)
+				title = str(title_dict[y_axis])
+				data1 = load_data(exp_folder, x1_axis, y_axis, args)
+				if data1 is not None and (not two_x_axes or data2 is not None):
+					labels.append(get_experiment_info(exp_folder))
+					empty_axis = False
+					x1_data_tmp.append(data1[0])
+					y_data_tmp.append(data1[1])
+					if (two_x_axes):
+						x2_data_tmp.append(data2[0])
+
+		if not empty_axis:
+			x1_data_tmp, x1_label = format_axis(x1_data_tmp, x1_axis)
+			y_data_tmp, y_label = format_axis(y_data_tmp, y_axis)
+			# Store data
+			titles.append(title)
+			x1_labels.append(x1_label) 
+			y_labels.append(y_label)
+			x1_data.append(x1_data_tmp)
+			y_data.append(y_data_tmp)
+			if (two_x_axes):
+				x2_data_tmp, x2_label = format_axis(x2_data_tmp, x2_axis)
+				x2_labels.append(x2_label) 
+				x2_data.append(x2_data_tmp)
+			all_labels.append(labels)
+
+	return x1_data, x2_data, x1_labels, x2_labels, y_data, y_labels, all_labels, titles
+
 def plot_results(args) -> None:
 
 	### Init ###
 	args.x_axis = adapt_x_axis(args.x_axis)
 	if (not args.rates):
 		args.y_axis = adapt_y_axis(args.x_axis, args.y_axis)
-		all_labels = []
 
 	args.log_folder = remove_duplicates(args.log_folder)
 
-	two_x_axes = len(args.x_axis) == 2
-
+	two_x_axes = (len(args.x_axis) == 2)
 	x1_axis = args.x_axis[0]
-	x1_labels, x1_all_data = [], []
-
-	if (two_x_axes):
-		x2_axis = args.x_axis[1]
-		x2_labels, x2_all_data = [], []
-	
-	y_labels, y_all_data = [], []
-	titles = []
+	x2_axis = args.x_axis[1] if two_x_axes else None
 
 	if args.rates:
-		
-		# Gather all experience folders
-		exp_folders = []
-		for log_folder in args.log_folder:
-			exp_folders.extend(get_experiment_folders(log_folder, args.algo, args.env))
-
-		# Gather data from folder
-		for exp_folder in exp_folders:
-
-			x1_data_agent, y_data_agent = [], []
-			if (two_x_axes):
-				x2_data_agent = []
-
-			empty_axis = True
-			for rate in rates:
-				y_axis = rate
-
-				data = load_data(exp_folder, x1_axis, y_axis, args)
-				if (two_x_axes):
-					data_twin = load_data(exp_folder, x2_axis, y_axis, args)
-
-				if data is not None and (not two_x_axes or data_twin is not None):
-					title = get_experiment_info(exp_folder)
-					empty_axis = False
-					x, y = data
-					x1_data_agent.append(x)
-					y_data_agent.append(y)
-					if (two_x_axes):
-						x_twin, _ = data_twin
-						x2_data_agent.append(x_twin)
-			
-			if not empty_axis:
-				x1_data_agent, x1_label = format_axis(x1_data_agent, x1_axis)
-
-				# Store data
-				titles.append(title)
-				x1_labels.append(x1_label) 
-				x1_all_data.append(x1_data_agent)
-				y_all_data.append(y_data_agent)
-				if (two_x_axes):
-					x2_data_agent, x2_label = format_axis(x2_data_agent, x2_axis)
-					x2_labels.append(x2_label) 
-					x2_all_data.append(x2_data_agent)
-
+		x1_data, x2_data, x1_labels, x2_labels, y_data, titles = gather_rates_data(x1_axis, x2_axis, args)
 	else:
-
-		for subplot_index in range(len(args.y_axis)):
-
-			y_axis = args.y_axis[subplot_index]
-			
-			if (two_x_axes):
-				x2_axis_tmp = x2_axis
-
-			x1_axis_tmp, y_axis_tmp = x1_axis, y_axis
-			#if (y_axis in x_axis_list):
-			#	if (two_x_axes):
-			#		x1_axis_tmp, x2_axis_tmp, y_axis_tmp = x2_axis, y_axis, x1_axis
-			#	else:
-			#		x1_axis_tmp, y_axis_tmp = y_axis, x1_axis
-
-			x1_data_agent, y_data_agent = [], []
-			if (two_x_axes):
-				x2_data_agent = []
-
-			labels = []
-
-			# Gather data from folders
-			empty_axis = True
-			for log_folder in args.log_folder:
-				exp_folders = get_experiment_folders(log_folder, args.algo, args.env)
-				for exp_folder in exp_folders:
-					if (two_x_axes):
-						data_twin = load_data(exp_folder, x2_axis_tmp, y_axis_tmp, args)
-					title = str(title_dict[y_axis_tmp])
-					data = load_data(exp_folder, x1_axis_tmp, y_axis_tmp, args)
-					if data is not None and (not two_x_axes or data_twin is not None):
-						labels.append(get_experiment_info(exp_folder))
-						empty_axis = False
-						x, y = data
-						x1_data_agent.append(x)
-						y_data_agent.append(y)
-						if (two_x_axes):
-							x_twin, _ = data_twin
-							x2_data_agent.append(x_twin)
-
-			if not empty_axis:
-				x1_data_agent, x_label = format_axis(x1_data_agent, x1_axis_tmp)
-				y_data_agent, y_label = format_axis(y_data_agent, y_axis_tmp)
-				# Store data
-				titles.append(title)
-				x1_labels.append(x_label) 
-				y_labels.append(y_label)
-				x1_all_data.append(x1_data_agent)
-				y_all_data.append(y_data_agent)
-				if (two_x_axes):
-					x2_data_agent, x2_label = format_axis(x2_data_agent, x2_axis_tmp)
-					x2_labels.append(x2_label) 
-					x2_all_data.append(x2_data_agent)
-				all_labels.append(labels)
+		x1_data, x2_data, x1_labels, x2_labels, y_data, y_labels, all_labels, titles = gather_data(x1_axis, x2_axis, args) 
+		
 
 	# Number of subplots
 	n_subplots = len(titles)
@@ -178,38 +171,38 @@ def plot_results(args) -> None:
 		legend_labels, legend_handles = [], []
 
 	# Create subplots
-	for subplot_index in range(n_subplots):
+	for plt_idx in range(n_subplots):
 
-		ax = fig.add_subplot(gs[subplot_index])
+		ax = fig.add_subplot(gs[plt_idx])
 
-		title = titles[subplot_index]
-		x_label = x1_labels[subplot_index]
+		title = titles[plt_idx]
+		x_label = x1_labels[plt_idx]
 		if args.rates:
 			y_label = axis_label_dict[KEY_RATES]
 		else:
-			y_label = y_labels[subplot_index]
+			y_label = y_labels[plt_idx]
 
 		ax.set(title=title, xlabel=x_label, ylabel=y_label)
 
 		if (two_x_axes):
-			x2_label = x2_labels[subplot_index]
+			x2_label = x2_labels[plt_idx]
 			ax2 = ax.twiny()
 			ax2.set(xlabel=x2_label)
 			# Hide twin axis grid lines
 			ax2.grid(False)
 
 		# Plot data on subplot
-		for curve_index in range(len(x1_all_data[subplot_index])):
-			x1_data = x1_all_data[subplot_index][curve_index]
-			y_data = y_all_data[subplot_index][curve_index]
+		for cur_idx in range(len(x1_data[plt_idx])):
+			x1_plt = x1_data[plt_idx][cur_idx]
+			y_plt = y_data[plt_idx][cur_idx]
 			if args.rates:
 				label = rates[rate_index]
 			else:
-				label = all_labels[subplot_index][curve_index]
-			plot_data(ax, x1_data, y_data, label, args.line_width, False)
+				label = all_labels[plt_idx][cur_idx]
+			plot_data(ax, x1_plt, y_plt, label, args.line_width, False)
 			if (two_x_axes):
-				x2_data = x2_all_data[subplot_index][curve_index]
-				plot_data(ax2, x2_data, np.zeros(len(x2_data)), "", args.line_width, True)
+				x2_plt = x2_data[plt_idx][cur_idx]
+				plot_data(ax2, x2_plt, np.zeros(len(x2_plt)), "", args.line_width, True)
 			if args.rates:
 				rate_index = (rate_index + 1) % len(rates)
 

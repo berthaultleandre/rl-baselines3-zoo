@@ -523,8 +523,8 @@ class ExperimentManager:
         if "Neck" in self.env_id or self.is_robotics_env(self.env_id) or "parking-v0" in self.env_id:
             monitor_kwargs = dict(info_keywords=("is_success",))
         if "UR" in self.env_id:
-        	monitor_kwargs = dict(info_keywords=("final_status", "is_success"),)
-        
+            monitor_kwargs = dict(info_keywords=("final_status", "is_success"),)
+            
         # On most env, SubprocVecEnv does not help and is quite memory hungry
         # therefore we use DummyVecEnv by default
         env = make_vec_env(

@@ -37,3 +37,8 @@ try:
     import robo_gym
 except ImportError:
     robo_gym = None
+
+try:
+    import gym_dobot
+except ImportError:
+    gym_dobot = None
